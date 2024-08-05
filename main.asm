@@ -6,20 +6,71 @@ _start: ;------------------------------------------
     ; [rsp] = argc
     ; [rsp + 8] = argv[]
     cmp qword [rsp], 1
-    jbe exit_error  ; exit if argc <= 1. (Arguments missing)
+        jbe exit_error  ; exit if argc <= 1. (Arguments missing)
 
-    ; reading argv[0]
-    mov rbx, [rsp + 8]  ; 
+    ; reading argv[1]   
+    mov rbx, [rsp + 16] ; argv[1] = MAC
     xor rcx, rcx
 count_chars:
-    xor rax, rax
-    mov al, [rbx + rcx]
+    mov al, [rbx + rcx] ; al = symbol
     cmp byte al, 0
-    je eol  ; jump if EOL
+        je eol              ; jump if EOL
     inc rcx
     jmp count_chars
-
 eol:
+
+    ; verify the length of string for MAC
+    cmp rcx, 12         ; (without ":")
+        je without_colon
+    cmp rcx, 17         ; (with ":")
+        je colon
+    jne exit_user_error ; error if MAC length is invalid
+
+force_lowercase:
+    ; rcx = 12 or 17. should be set before calling force_lowercase
+    mov rbx, [rsp + 24] ; argv[1] = MAC. '+24' instead '+16' because CALL made RSP -= 0x08
+    l_fl:
+        mov al, [rbx + rcx - 1]
+        
+        cmp al, 58                  ; 58 = colon
+            je  l_fl_enditer        ; jump if char is colon
+        
+        ; verify if number
+        cmp al, 48  ; 48 = 0
+        jb  exit_user_error     ; exit if symbol is wrong
+        cmp al, 57  ; 57 = 9
+        jbe l_fl_enditer        ; end iter if number
+            
+        ; verify if uppercase
+        cmp al, 65  ; 65 = A
+        jb  exit_user_error     ; exit if symbol is wrong
+        cmp al, 70  ; 90 = F
+        jbe l_fl_enditer        ; end iter if number
+
+        ; verify if lowercase
+        cmp al, 97  ; 65 = a
+        jb  exit_user_error     ; exit if symbol is wrong
+        mov dl, al
+        add dl, 32              ; prepare lowercase if AL is uppercase
+        cmp al, 102  ; 90 = f
+        ja  exit_user_error     ; error if symbol is wrong hex val
+        jbe l_fl_enditer        ; end iter if number
+
+    l_fl_enditer:
+        loop l_fl
+    ret
+
+colon:
+    ; Write MAC to mac without colons
+    mov rcx, 17
+    call force_lowercase
+
+without_colon:
+    ; Write MAC to mac
+    mov rcx, 12
+    call force_lowercase
+
+mac_ready:
 
     ; Create socket
     mov rax, 41     ; socket syscall
@@ -29,7 +80,7 @@ eol:
     syscall
 
     cmp rax, 0
-    jl exit_error ; failed to create socket
+        jl exit_error   ; failed to create socket
     mov [socket_fd], rax
 
     ; Set up sockaddr_in structure
@@ -49,13 +100,17 @@ eol:
     syscall
 
 exit_success:
-    mov rdi, 0
-    mov rax, 60
+    mov     rdi, 0
+    mov     rax, 60
     syscall
 
+exit_user_error:    ; An error caused by incorrect user actions
+    ; Print help-message and exit
+    jmp exit_error
+
 exit_error:
-    mov rdi, 1  ; general error
-    mov rax, 60 ; exit
+    mov     rdi, 1  ; general error
+    mov     rax, 60 ; exit
     syscall
 ;--------------------------------------------------
 
@@ -66,10 +121,12 @@ section .rodata ;----------------------------------
     ; Magic Packet. Contain six bytes of 0xFF and 16 repeats of MAC
     magic_packet db 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
                  times 16 db 0x00, 0x11, 0x22, 0x33, 0x44, 0x55
+    hexnum  db 'ab'
 ;--------------------------------------------------
 
 section .bss ;-------------------------------------
-    socket_fd resd 1
-    sockaddr_in resb 16
+    socket_fd   resd    1
+    sockaddr_in resb    16
+    mac         resb    6
 ;--------------------------------------------------
 
