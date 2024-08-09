@@ -26,44 +26,12 @@ eol:
         je colon
     jne exit_user_error ; error if MAC length is invalid
 
-force_lowercase:
-    ; rcx = 12 or 17. should be set before calling force_lowercase
-    mov rbx, [rsp + 24] ; argv[1] = MAC. '+24' instead '+16' because CALL made RSP -= 0x08
-    l_fl:
-        mov al, [rbx + rcx - 1]
-        
-        cmp al, 58                  ; 58 = colon
-            je  l_fl_enditer        ; jump if char is colon
-        
-        ; verify if number
-        cmp al, 48  ; 48 = 0
-        jb  exit_user_error     ; exit if symbol is wrong
-        cmp al, 57  ; 57 = 9
-        jbe l_fl_enditer        ; end iter if number
-            
-        ; verify if uppercase
-        cmp al, 65  ; 65 = A
-        jb  exit_user_error     ; exit if symbol is wrong
-        cmp al, 70  ; 90 = F
-        jbe l_fl_enditer        ; end iter if number
-
-        ; verify if lowercase
-        cmp al, 97  ; 65 = a
-        jb  exit_user_error     ; exit if symbol is wrong
-        mov dl, al
-        add dl, 32              ; prepare lowercase if AL is uppercase
-        cmp al, 102  ; 90 = f
-        ja  exit_user_error     ; error if symbol is wrong hex val
-        jbe l_fl_enditer        ; end iter if number
-
-    l_fl_enditer:
-        loop l_fl
-    ret
-
 colon:
     ; Write MAC to mac without colons
     mov rcx, 17
     call force_lowercase
+    mov rcx, 17
+    call decode_and_save_ascii_mac
 
 without_colon:
     ; Write MAC to mac
@@ -113,6 +81,87 @@ exit_error:
     mov     rax, 60 ; exit
     syscall
 ;--------------------------------------------------
+;################-----FUNCTIONS-----###############
+force_lowercase: ; force lowercase for MAC placed in stack still
+    ; rcx = 12 or 17. should be set before calling force_lowercase
+    mov rbx, [rsp + 24] ; argv[1] = MAC. '+24' instead '+16' because CALL made RSP -= 0x08
+    l_fl:
+        mov al, [rbx + rcx - 1]
+        
+        cmp al, 58              ; 58 = colon
+        je  l_fl_enditer        ; skip if char is colon
+        
+        ; verify if number
+        cmp al, 48  ; 48 = 0
+        jb  exit_user_error     ; exit if symbol is wrong
+        cmp al, 57  ; 57 = 9
+        jbe l_fl_enditer        ; end iter if number
+            
+        ; verify if uppercase
+        cmp al, 65  ; 65 = A
+        jb  exit_user_error     ; exit if symbol is wrong
+        cmp al, 70  ; 90 = F
+        jbe l_fl_enditer        ; end iter if number
+
+        ; verify if lowercase
+        cmp al, 97  ; 65 = a
+        jb  exit_user_error     ; exit if symbol is wrong
+        mov dl, al
+        add dl, 32              ; prepare lowercase if AL is uppercase
+        cmp al, 102  ; 90 = f
+        ja  exit_user_error     ; error if symbol is wrong hex val
+        mov al, dl              ; make char lowercase 
+
+    l_fl_enditer:
+        loop l_fl
+    ret
+
+;##################################################
+    ; FUNCTION:
+    ;   - save decoded MAC to mac variable
+    ;   - owerwrire al  (used to store high 4-bit)
+    ;   - owerwrire dl  (used to store low 4-bit)
+    ;   - owerwrire rdx (used to store char num)
+decode_and_save_ascii_mac: 
+    mov rbx, [rsp + 24]     ; MAC pointer. DONT CALL THIS FUNCTION FROM ANOTHER CALLing
+
+    cmp al, 58  ; 58 = colon in ASCII
+        je l_decode_enditer 
+    cmp rcx, 17
+        je l_decode_colon
+    cmp rcx, 12
+        je l_decode_non_colon
+
+    l_decode_colon:
+        mov [al], [rbx]
+        mov [dl], [rbx + 1]
+
+        ; [rbx + 2] = ":"
+
+        mov [al], [rbx + 3]
+        mov [dl], [rbx + 4]
+    
+        ; [rbx + 5]= ":'
+
+        mov [al], [rbx + 6]
+        mov [dl], [rbx + 7]
+
+        ; [rbx + 8] = ":"
+
+        mov [al], [rbx + 9]
+        mov [dl], [rbx + 10]
+
+        ; [rbx + 11] = ":"
+
+        mov [al], [rbx + 12]
+        mov [dl], [rbx + 13]
+
+        ; [rbx + 14] = ":"
+
+        mov [al], [rbx + 15]
+        mov [dl], [rbx + 16]
+    l_decode_non_colon:
+ret
 
 ;section .data ;------------------------------------
 ;--------------------------------------------------
